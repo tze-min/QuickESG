@@ -1,19 +1,15 @@
 import streamlit as st
 import pandas as pd
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
 from datetime import datetime as dt
 from urllib import request
 import json
 
-# define scraper and formatting function
+base_url = "https://query2.finance.yahoo.com/v1/finance/esgChart?symbol="
 
-def get_esgdata(base_url, ticker):
-    
-    print("getting data for", ticker, "...")
-    
+@st.cache
+def get_esgdata(ticker:str):
+    """Get ESG scores from Yahoo Finance's endpoint, given a company's ticker symbol"""
+
     # open url and get json data
     url = base_url + ticker
     connection = request.urlopen(url)
@@ -24,94 +20,68 @@ def get_esgdata(base_url, ticker):
     
     # extract and format data (including the timestamp column)
     try:
-        peer_group = data["esgChart"]["result"][0]["peerGroup"]
+        # get the company's peer group
+        peergroup = data["esgChart"]["result"][0]["peerGroup"] 
+
     except:
-        print("\tno sustainability data!")
-        no_data.append(ticker)
-        return
-
-    peer_series = pd.DataFrame(data["esgChart"]["result"][0]["peerSeries"])
-    peer_series["ticker"] = ticker
-    peer_series["peer_group"] = peer_group
-    list_peer_series.append(peer_series)
-
-    symbol_series = pd.DataFrame(data["esgChart"]["result"][0]["symbolSeries"])
-    symbol_series["ticker"] = ticker
-    symbol_series["peer_group"] = peer_group
-    list_symbol_series.append(symbol_series)
+        print("\tuh oh, no sustainability data!")
+        st.write("Data doesn't exist for", ticker)    
+        return None
     
-    print("data for", ticker, "retrieved")
+    # get the company's ESG scores
+    company_data = pd.DataFrame(data["esgChart"]["result"][0]["symbolSeries"])
+    company_data["timestamp"] = pd.to_datetime(company_data["timestamp"], unit="s")
+    company_data = company_data.reset_index(drop=True)
 
-    return
+    # get the company's peer group's ESG scores
+    peergroup_data = pd.DataFrame(data["esgChart"]["result"][0]["peerSeries"])
+    peergroup_data["timestamp"] = pd.to_datetime(peergroup_data["timestamp"], unit="s")
+    peergroup_data = peergroup_data.reset_index(drop=True)
 
-# get data for each url in list of urls
+    return peergroup, company_data, peergroup_data
 
-list_peer_series = []
-list_symbol_series = []
-no_data = []
+def transform_data(company_data, peergroup_data):
+    """Transform data into a format suitable for visualisation"""
 
-tickers = ["PEP", "AMT"] # sample tickers (NOVN should have no data)
-base_url = "https://query2.finance.yahoo.com/v1/finance/esgChart?symbol="
+    # join company and peer datasets
+    company_data["series_type"] = "company"
+    peergroup_data["series_type"] = "peer group"
+    data = pd.concat([company_data, peergroup_data])
 
-for ticker in tickers:
-    get_esgdata(base_url, ticker)
-    
-print("\ndata extraction complete!")
-    
-peer_data = pd.concat(list_peer_series)
-symbol_data = pd.concat(list_symbol_series)
-
-peer_data["timestamp"] = pd.to_datetime(peer_data["timestamp"], unit="s")
-symbol_data["timestamp"] = pd.to_datetime(symbol_data["timestamp"], unit="s")
-
-peer_data = peer_data.reset_index(drop=True)
-symbol_data = symbol_data.reset_index(drop=True)
-
-st.write("ESG Rating per Company")
-st.write(symbol_data)
-
-st.write("ESG Rating per Peer Group")
-st.write(peer_data)
-
-# For visualisation, drop the scores before 1 Jan 2020
-
-symbol_after2020 = symbol_data[symbol_data.timestamp >= "2020-01-01"]
-peer_after2020 = peer_data[peer_data.timestamp >= "2020-01-01"]
-
-# Join datasets together
-
-symbol_after2020["series_type"] = "company"
-peer_after2020["series_type"] = "peer group"
-after2020 = pd.concat([symbol_after2020, peer_after2020])
-
-# Unpivot score columns
-
-aft2020 = pd.melt(
-    after2020, id_vars=["timestamp", "ticker", "series_type"], 
-    value_vars=["esgScore", "governanceScore", "environmentScore", "socialScore"],
-    var_name="score_dimension",
-    value_name="score"
-)
-
-# Draw charts
-
-mapping = peer_after2020[["ticker", "peer_group"]].value_counts().reset_index(name="count")
-
-def plot_esgratings(ticker):
-    ticker_aft2020 = aft2020[aft2020.ticker == ticker]
-
-    ax = sns.relplot(
-        data=ticker_aft2020, x="timestamp", y="score",
-        hue="series_type", col="score_dimension",
-        kind="line", style="series_type", markers=True
+    # unpivot ESG score column
+    data = pd.melt(
+        data, id_vars=["timestamp", "ticker", "series_type"], 
+        value_vars=["esgScore", "governanceScore", "environmentScore", "socialScore"],
+        var_name="score_dimension",
+        value_name="score"
     )
-    
-    peer_group = mapping[mapping.ticker == ticker].reset_index().loc[0, "peer_group"]
-    title = "ESG Risk Rating from 2020 to 2022, for " + ticker + " and its peer group, " + peer_group
-    
-    ax.set_xticklabels(rotation=40)
-    ax.fig.suptitle(title) # add overall title
-    plt.subplots_adjust(top=0.85) # adjust the subplots lower, so it doesn't overlap with the title
-    plt.show()
+    return data
 
-plot_esgratings("PEP")
+def display_data(ticker:str, peergroup:str, company_data, peergroup_data, all=True):
+    """Display tables of ESG ratings data"""
+
+    ticker_header = "ESG Ratings for " + ticker
+    peergroup_header = "ESG Ratings for " + peergroup
+    if all:
+        st.header(ticker_header)
+        st.write(company_data)
+        st.header(peergroup_header)
+        st.write(peergroup_data)
+    else:
+        company_after2020 = company_data[company_data.timestamp >= "2020-01-01"]
+        st.header(ticker_header)
+        st.write(company_after2020)
+        peergroup_after2020 = peergroup_data[peergroup_data.timestamp >= "2020-01-01"]
+        st.header(peergroup_header)
+        st.write(peergroup_after2020)
+
+# front end starts here
+st.title("Quickly look up a firm's ESG rating")
+ticker = st.text_input("Ticker:", "AAPL")
+peergroup, company_data, peergroup_data = get_esgdata(ticker)
+
+# do we want to visualise old ESG ratings before 1 Jan 2020?
+if st.selectbox("Show only data from 1 Jan 2020 onwards?", ["Yes", "No, show me data of all time"]) == "Yes":
+    display_data(ticker, peergroup, company_data, peergroup_data, all=False)
+else:
+    display_data(ticker, peergroup, company_data, peergroup_data)
