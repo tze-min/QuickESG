@@ -98,7 +98,11 @@ def display_tables(ticker:str, peergroup:str, company_data, peergroup_data, all=
         st.write(peergroup_after2020)
 
 # front end starts here
-st.title("Quickly look up a firm's ESG rating")
+with st.sidebar:
+    st.title("About")
+    st.write("Quickly look up a firm's Sustainalytics ESG rating")
+
+st.title("QuickESG")
 ticker = st.text_input("Ticker:", "AAPL")
 peergroup, company_data, peergroup_data = get_esgdata(ticker)
 
