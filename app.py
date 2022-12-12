@@ -5,7 +5,7 @@ import numpy as np
 from urllib import request
 import json
 
-# Backend
+### Backend! ###
 
 base_url = "https://query2.finance.yahoo.com/v1/finance/esgChart?symbol="
 
@@ -42,7 +42,101 @@ def get_esgdata(ticker:str):
 
     return peergroup, company_data, peergroup_data
 
-def display_tables(ticker:str, peergroup:str, company_data, peergroup_data, all=True):
+def transform_data_for_company_tab(company_data, peergroup_data):
+    """Transform data into a format suitable for visualisation"""
+
+    # join company and peer datasets
+    company_data["series_type"] = "company"
+    peergroup_data["series_type"] = "peer group"
+    data = pd.concat([company_data, peergroup_data])
+
+    # unpivot ESG score column
+    data = pd.melt(
+        data, id_vars=["timestamp", "series_type"],
+        value_vars=["esgScore", "governanceScore", "environmentScore", "socialScore"],
+        var_name="score_dimension",
+        value_name="score"
+    )
+
+    # filter out NA values so that the non-NA values can be connected in line charts (for Altair)
+    data = data.replace("<NA>", np.nan)
+    data = data.dropna()
+
+    return data
+
+def create_esg_score_chart(data, all=True):
+    """Plot timeline of ESG scores for the selected company, compared with peer group's average"""
+
+    data = data[data.score_dimension == "esgScore"]
+    if not all:
+        data = data[data.timestamp >= "2020-01-01"]
+
+    c = alt.Chart(data).mark_line(
+        point=alt.OverlayMarkDef(color="red")
+    ).encode(
+        x="timestamp",
+        y="score",
+        color=alt.Color("series_type", legend=None),
+        strokeDash="series_type"
+    )
+
+    return c
+
+def create_env_score_chart(data, all=True):
+    """Plot timeline of environmental scores for the selected company, compared with peer group's average"""
+
+    data = data[data.score_dimension == "environmentScore"]
+    if not all:
+        data = data[data.timestamp >= "2020-01-01"]
+
+    c = alt.Chart(data).mark_line(
+        point=alt.OverlayMarkDef(color="red")
+    ).encode(
+        x="timestamp",
+        y="score",
+        color=alt.Color("series_type", legend=None),
+        strokeDash="series_type"
+    )
+
+    return c
+
+def create_social_score_chart(data, all=True):
+    """Plot timeline of social scores for the selected company, compared with peer group's average"""
+
+    data = data[data.score_dimension == "socialScore"]
+    if not all:
+        data = data[data.timestamp >= "2020-01-01"]
+
+    c = alt.Chart(data).mark_line(
+        point=alt.OverlayMarkDef(color="red")
+    ).encode(
+        x="timestamp",
+        y="score",
+        color=alt.Color("series_type", legend=None),
+        strokeDash="series_type"
+    )
+
+    return c
+
+def create_gov_score_chart(data, all=True):
+    """Plot timeline of governance scores for the selected company, compared with peer group's average"""
+
+    data = data[data.score_dimension == "governanceScore"]
+    if not all:
+        data = data[data.timestamp >= "2020-01-01"]
+
+    c = alt.Chart(data).mark_line(
+        point=alt.OverlayMarkDef(color="red")
+    ).encode(
+        x="timestamp",
+        y="score",
+        color=alt.Color("series_type", legend=None),
+        strokeDash="series_type"
+    )
+
+    return c
+
+def display_tables_for_data_tab(ticker:str, peergroup:str, company_data, peergroup_data, all=True):
     """Display tables of ESG ratings data"""
 
     ticker_header = "ESG Ratings for " + ticker
@@ -80,18 +174,33 @@ with st.sidebar:
     peergroup, company_data, peergroup_data = get_esgdata(ticker)
     st.write(ticker, "is in", peergroup)
 
-
 # create tabs
 company_tab, industry_tab, data_tab = st.tabs(["Company View", "Industry View", "Download Data"])
 
 with company_tab:
-    st.write('yes')
+    # create columns
+    charts_col, news_col = st.columns(2)
 
+    # transform and visualise ESG scores for selected company
+    data = transform_data_for_company_tab(company_data, peergroup_data)
+
+    # create Altair charts
+    esg_chart = create_esg_score_chart(data, all=False)
+    env_chart = create_env_score_chart(data, all=False)
+    social_chart = create_social_score_chart(data, all=False)
+    gov_chart = create_gov_score_chart(data, all=False)
+
+    # pass the created charts to Streamlit
+    charts_col.altair_chart(esg_chart, use_container_width=True)
+    charts_col.altair_chart(env_chart, use_container_width=True)
+    charts_col.altair_chart(social_chart, use_container_width=True)
+    charts_col.altair_chart(gov_chart, use_container_width=True)
+    
 with industry_tab:
     st.write('another yes')
 
 with data_tab:
     if show_truncated_data:
-        display_tables(ticker, peergroup, company_data, peergroup_data, all=False)
+        display_tables_for_data_tab(ticker, peergroup, company_data, peergroup_data, all=False)
     else:
-        display_tables(ticker, peergroup, company_data, peergroup_data)
+        display_tables_for_data_tab(ticker, peergroup, company_data, peergroup_data)
